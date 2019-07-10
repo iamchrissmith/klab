@@ -15,54 +15,6 @@
 
     rule ( WS1 ++ WS2 ) ++ WS3 => WS1 ++ ( WS2 ++ WS3 )
 
-    syntax WordStack ::= #bufSeg ( WordStack , Int , Int ) [function, smtlib(bufSeg)] // BUFFER, START, WIDTH
-    syntax Int       ::= #bufElm ( WordStack , Int )       [function] // BUFFER, INDEX
-
-    syntax Bool ::= #isBuf ( WordStack ) [function]
-    rule #isBuf(#buf(_,_)) => true
-    rule #isBuf(#bufSeg(_,_,_)) => true
-
-    rule #asWord(#buf(SIZE, DATA)) => DATA requires SIZE <=Int 32
-
-    rule #buf(SIZE, _)        => .WordStack requires SIZE  ==Int 0
-    rule #bufSeg(_, _, WIDTH) => .WordStack requires WIDTH ==Int 0
-
-    rule #bufSeg(WS, START, WIDTH) => WS requires START ==Int 0 andBool WIDTH ==Int #sizeWordStack(WS)
-
-    rule #bufSeg(#bufSeg(BUF, START0, WIDTH0), START, WIDTH)
-      => #bufSeg(BUF, START0 +Int START, WIDTH)
-      requires 0 <=Int START andBool START +Int WIDTH <=Int WIDTH0
-
-    // Auxiliary function to make rules compatible with simplification `rule WS ++ .WordStack => WS`
-    syntax WordStack ::= #takeAux ( Int , WordStack , WordStack ) [function]
- // ------------------------------------------------------------------------
-    rule #take(N, BUF      ) => #takeAux(N, BUF, .WordStack)               requires #isBuf(BUF)
-    rule #take(N, BUF ++ WS) => #takeAux(N, BUF, WS)                       requires #isBuf(BUF)
-    rule #takeAux(N, BUF, WS) => #bufSeg(BUF, 0, N)                        requires 0 <=Int N andBool N <=Int #sizeBuffer(BUF)
-    rule #takeAux(N, BUF, WS) => BUF ++ #take(N -Int #sizeBuffer(BUF), WS) requires N >Int #sizeBuffer(BUF)
-
-    syntax WordStack ::= #dropAux ( Int , WordStack , WordStack ) [function]
- // ------------------------------------------------------------------------
-    rule #drop(N, BUF      ) => #dropAux(N, BUF, .WordStack)                    requires #isBuf(BUF)
-    rule #drop(N, BUF ++ WS) => #dropAux(N, BUF, WS)                            requires #isBuf(BUF)
-    rule #dropAux(N, BUF, WS) => #bufSeg(BUF, N, #sizeBuffer(BUF) -Int N) ++ WS requires 0 <=Int N andBool N <=Int #sizeBuffer(BUF)
-    rule #dropAux(N, BUF, WS) => #drop(N -Int #sizeBuffer(BUF), WS)             requires N >=Int #sizeBuffer(BUF)
-
-    syntax Int ::= #getElmAux ( WordStack , WordStack , Int ) [function]
- // --------------------------------------------------------------------
-    rule (BUF      ) [ N ] => #getElmAux(BUF, .WordStack, N)      requires #isBuf(BUF)
-    rule (BUF ++ WS) [ N ] => #getElmAux(BUF, WS, N)              requires #isBuf(BUF)
-    rule #getElmAux(BUF, WS, N) => #bufElm(BUF, N)                requires 0 <=Int N andBool N <Int #sizeBuffer(BUF)
-    rule #getElmAux(BUF, WS, N) => WS [ N -Int #sizeBuffer(BUF) ] requires N >=Int #sizeBuffer(BUF)
-
-
-    rule #sizeWordStack ( BUF ++ WS, SIZE ) => #sizeWordStack(WS, SIZE +Int #sizeBuffer(BUF)) requires #isBuf(BUF)
-    rule #sizeWordStack ( BUF      , SIZE ) =>                    SIZE +Int #sizeBuffer(BUF)  requires #isBuf(BUF)
-
-    syntax Int ::= #sizeBuffer ( WordStack ) [function]
- // ---------------------------------------------------
-    rule #sizeBuffer ( #buf(N,_) )      => N
-    rule #sizeBuffer ( #bufSeg(_,_,N) ) => N
 
     // Same rules exist in KEVM, but are marked [concrete]. Allowing them for symbolic arguments here.
 
@@ -186,39 +138,39 @@
                 : nthbyteof(keccakIntList(V), 31, 32)
                 : .WordStack ) => keccakIntList(V)
 
-    rule #asWord( nthbyteof(#symEcrec(V),  0, 32)
-                : nthbyteof(#symEcrec(V),  1, 32)
-                : nthbyteof(#symEcrec(V),  2, 32)
-                : nthbyteof(#symEcrec(V),  3, 32)
-                : nthbyteof(#symEcrec(V),  4, 32)
-                : nthbyteof(#symEcrec(V),  5, 32)
-                : nthbyteof(#symEcrec(V),  6, 32)
-                : nthbyteof(#symEcrec(V),  7, 32)
-                : nthbyteof(#symEcrec(V),  8, 32)
-                : nthbyteof(#symEcrec(V),  9, 32)
-                : nthbyteof(#symEcrec(V), 10, 32)
-                : nthbyteof(#symEcrec(V), 11, 32)
-                : nthbyteof(#symEcrec(V), 12, 32)
-                : nthbyteof(#symEcrec(V), 13, 32)
-                : nthbyteof(#symEcrec(V), 14, 32)
-                : nthbyteof(#symEcrec(V), 15, 32)
-                : nthbyteof(#symEcrec(V), 16, 32)
-                : nthbyteof(#symEcrec(V), 17, 32)
-                : nthbyteof(#symEcrec(V), 18, 32)
-                : nthbyteof(#symEcrec(V), 19, 32)
-                : nthbyteof(#symEcrec(V), 20, 32)
-                : nthbyteof(#symEcrec(V), 21, 32)
-                : nthbyteof(#symEcrec(V), 22, 32)
-                : nthbyteof(#symEcrec(V), 23, 32)
-                : nthbyteof(#symEcrec(V), 24, 32)
-                : nthbyteof(#symEcrec(V), 25, 32)
-                : nthbyteof(#symEcrec(V), 26, 32)
-                : nthbyteof(#symEcrec(V), 27, 32)
-                : nthbyteof(#symEcrec(V), 28, 32)
-                : nthbyteof(#symEcrec(V), 29, 32)
-                : nthbyteof(#symEcrec(V), 30, 32)
-                : nthbyteof(#symEcrec(V), 31, 32)
-                : .WordStack ) => #symEcrec(V)
+    rule #asWord( nthbyteof(#symEcrec(MSG, V, R, S),  0, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  1, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  2, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  3, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  4, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  5, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  6, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  7, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  8, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S),  9, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 10, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 11, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 12, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 13, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 14, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 15, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 16, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 17, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 18, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 19, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 20, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 21, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 22, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 23, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 24, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 25, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 26, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 27, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 28, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 29, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 30, 32)
+                : nthbyteof(#symEcrec(MSG, V, R, S), 31, 32)
+                : .WordStack ) => #symEcrec(MSG, V, R, S)
 
 
 rule ACCTCODE in SetItem( 1 )
@@ -232,11 +184,19 @@ rule ACCTCODE in SetItem( 1 )
                  => false
      requires 9 <=Int ACCTCODE
 
+    syntax IntList ::= bytesToWords ( WordStack )       [function]
+
+ // --------------------------------------------------------------
+    rule bytesToWords ( WS )
+         => #asWord(#take(#sizeWordStack(WS) modInt 32, WS)) byteStack2IntList(#drop(#sizeWordStack(WS) modInt 32, WS))
+         requires #sizeWordStack(WS) modInt 32 >Int 0
+
+    rule bytesToWords ( WS ) => byteStack2IntList(WS)
+         requires #sizeWordStack(WS) modInt 32 ==Int 0
 
 // for terms came from bytecode not via #hashedLocation
-    rule keccak(WS) => keccakIntList(byteStack2IntList(WS))
+    rule keccak(WS) => keccakIntList(bytesToWords(WS))
       requires ( notBool #isConcrete(WS) )
-       andBool ( #sizeWordStack(WS) modInt 32 ==Int 0)
 
     rule 0 <=Int keccakIntList(N)     => true
     rule keccaktIntList(N) <Int pow256 => true
@@ -252,7 +212,7 @@ rule ACCTCODE in SetItem( 1 )
 
     rule #padToWidth(32, #asByteStack( keccakIntList (V) )) => #asByteStackInWidth( keccakIntList (V), 32)
 
-    rule #padToWidth(32, #asByteStack( #symEcrec(V) )) => #asByteStackInWidth( #symEcrec(V), 32)
+    rule #padToWidth(32, #asByteStack( #symEcrec(MSG, V, R, S) )) => #asByteStackInWidth( #symEcrec(MSG, V, R, S), 32)
 
 
    // for Vyper
@@ -325,25 +285,42 @@ rule ACCTCODE in SetItem( 1 )
                             andBool 0 <=Int N andBool N <=Int MASK
 
 
-    // for gas calculation
-    rule A -Int (#if C #then B1 #else B2 #fi) => #if C #then (A -Int B1) #else (A -Int B2) #fi
-         requires #isConcrete(A)
+    /// GAS Simplification
+    rule ((A -Int (X +Int C)) +Int (C -Int Y)) => (A -Int X) -Int Y
 
+    rule #if C #then G -Int X #else G -Int Y #fi => G -Int (#if C #then X #else Y #fi)
+      requires #isVariable(G)
+
+    rule A -Int (#if C #then B1 #else B2 #fi) => #if C #then (A -Int B1) #else (A -Int B2) #fi
+      requires #isConcrete(A)
     rule (#if C #then B1 #else B2 #fi) -Int A => #if C #then (B1 -Int A) #else (B2 -Int A) #fi
-         requires #isConcrete(A)
+      requires #isConcrete(A)
     rule (#if C #then B1 #else B2 #fi) +Int A => #if C #then (B1 +Int A) #else (B2 +Int A) #fi
-         requires #isConcrete(A)
+      requires #isConcrete(A)
     rule (#if C #then B1 #else B2 #fi) >Int A => true
-       requires B1 >Int A andBool B2 >Int A
+      requires B1 >Int A andBool B2 >Int A
 
     rule (A -Int A /Int 64) -Int B -Int (#if C #then B1 #else B2 #fi) =>
     #if C #then (A -Int A /Int 64) -Int B1 #else (A -Int A /Int 64) -Int B2 #fi -Int B
 
     rule (#if C #then B1 #else B2 #fi) >=Int A => true
-       requires B1 >=Int A andBool B2 >=Int A
+      requires B1 >=Int A andBool B2 >=Int A
 
     rule #if C #then (#if C #then B1 #else B2 #fi) -Int D #else (#if C #then B3 #else B4 #fi) -Int E #fi =>
          #if C #then B1 -Int D #else B4 -Int E #fi
+
+    rule (G -Int A) -Int (#if C #then P #else Q #fi) =>
+          G -Int (#if C #then A +Int P #else A +Int Q #fi)
+      requires #isConcrete(A)
+      andBool  #isConcrete(P)
+      andBool  #isConcrete(Q)
+
+    rule (G -Int (#if C #then P #else Q #fi)) -Int A =>
+          G -Int (#if C #then P +Int A #else Q +Int A #fi)
+      requires #isConcrete(A)
+      andBool  #isConcrete(P)
+      andBool  #isConcrete(Q)
+    /// ---
 
 
     rule A -Int A => 0
@@ -467,18 +444,13 @@ rule Cextra(SCHED, ISEMPTY, VALUE) => Gcall < SCHED > +Int Cnew(SCHED, ISEMPTY, 
 rule Cmem(SCHED, N) => (N *Int Gmemory < SCHED >) +Int ((N *Int N) /Int Gquadcoeff < SCHED >)
 
 //Symbolic wrapper over the argument of #ecrec, no implementation.
-syntax Int ::= #symEcrec ( WordStack ) [function]
+//                         hash v  r   s
+syntax Int ::= #symEcrec ( Int , Int , Int , Int ) [function]
 
 rule <k> ECREC => #end EVMC_SUCCESS ... </k>
        <callData> DATA </callData>
-       <output> _ => #ecrec(#symEcrec(DATA)) </output>
+       <output> _ => #ecrec(#symEcrec(#asWord(#take(32, DATA)), #asWord(#take(32, #drop(32, DATA))), #asWord(#take(32, #drop(64, DATA))), #asWord(#take(32, #drop(96, DATA))))) </output>
     requires notBool #isConcrete(DATA) andBool #sizeWordStack(DATA) ==Int 128
 [trusted]
 
 rule #memoryUsageUpdate(MU, START, WIDTH) => maxInt(MU, (START +Int WIDTH) up/Int 32) requires WIDTH  >Int 0
-
-// GAS optimisation
-rule ((A -Int (X +Int C)) +Int (C -Int Y)) => (A -Int X) -Int Y
-
-rule #if C #then G -Int X #else G -Int Y #fi => G -Int (#if C #then X #else Y #fi)
-

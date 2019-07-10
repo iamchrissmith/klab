@@ -6,6 +6,7 @@ green=$(tput setaf 2)
 yellow=$(tput setaf 3)
 bold=$(tput bold)
 reset=$(tput sgr0)
+export red green yellow bold reset
 
 if [ -z "$KLAB_OUT" ]; then
   echo "KLAB_OUT not set, defaulting to ./out/"
@@ -29,13 +30,13 @@ export RUNNING_DIR=$KLAB_OUT/meta/running
 export OBLIGATIONS=$KLAB_OUT/obligations.batch
 export BATCH_LIMIT=8
 export THREADS=${THREADS:-2}
-export QUIET=1
 PNAME=$(jq -r '.name' < config.json)
 if [ "$PNAME" == "null" ]; then PNAME=""; fi
 export PNAME
 
 if [ -d ".git" ]; then
-  export build_hash=$(klab get-build-id)
+  build_hash=$(klab get-build-id)
+  export build_hash
   if [ -n "$KLAB_REPORT_DIR" ]; then
     export KLAB_REPORT_NAME_DIR=$KLAB_REPORT_DIR/$PNAME
     export KLAB_REPORT_PROJECT_DIR=$KLAB_REPORT_DIR/$PNAME/$build_hash
@@ -46,24 +47,25 @@ if [ -d ".git" ]; then
     if [ ! -f "$KLAB_REPORT_DIR/$PNAME"/report.json ]; then
       echo "{}" > "$KLAB_REPORT_DIR/$PNAME"/report.json
     fi;
-    jq -r '.src.rules[]' < config.json |xargs -I {} cp {} $KLAB_REPORT_PROJECT_DIR
-    jq -r '.src.smt_prelude' < config.json |xargs -I {} cp {} $KLAB_REPORT_PROJECT_DIR
+    jq -r '.src.rules[]'     < config.json | xargs -I {} cp {} "$KLAB_REPORT_PROJECT_DIR"
+    jq -r '.src.smt_prelude' < config.json | xargs -I {} cp {} "$KLAB_REPORT_PROJECT_DIR"
   fi;
 fi;
 
 report () {
   set -e
-  if [ ! -z $KLAB_REPORT_NAME_DIR ]; then
+  if [ ! -z "$KLAB_REPORT_NAME_DIR" ]; then
     exec 3>"$KLAB_REPORT_NAME_DIR"/report.json.lock
     flock -x 3 || exit 0
   fi;
   klab report
   if [ -n "$KLAB_REPORT_PROJECT_DIR" ]; then
     cp "$KLAB_OUT/report/index.html" "$KLAB_REPORT_PROJECT_DIR"
-    cat <<< $(jq -s '.[0] * .[1]' "$KLAB_REPORT_DIR/$PNAME"/report.json "$KLAB_OUT"/report/report.json) > "$KLAB_REPORT_DIR/$PNAME"/report.json
+    concat=$(jq -s '.[0] * .[1]' "$KLAB_REPORT_DIR/$PNAME/report.json" "$KLAB_OUT/report/report.json")
+    echo "$concat" > "$KLAB_REPORT_DIR/$PNAME/report.json"
     echo "Report exported to $KLAB_REPORT_PROJECT_DIR"
   fi;
-  if [ ! -z $KLAB_REPORT_NAME_DIR ]; then
+  if [ ! -z "$KLAB_REPORT_NAME_DIR" ]; then
     exec 3>&-
   fi;
 }
@@ -73,101 +75,57 @@ export -f report
 do_proof () {
   set -e
 
-  timeout () {
-    echo "Trapped SIGTERM in do_proof()."
-    if [ -n "$proof_child" ]; then
-      echo "Sending SIGTERM to $proof_child in do_proof()."
-      kill -s TERM "$proof_child"
-    fi;
-    # check if SIGTERM is due to timeout
-    # if [ -n "$PROOF_START" ] && (( ($(date +%s) - PROOF_START) < TIMEOUT )); then
-    #   echo "Cause of death wasn't timeout, exiting without further action."
-    #   exit 1
-    # fi;
-    echo "Cause of death was timeout."
-    if [ -n "$hash" ]; then
-      touch "$KLAB_OUT/timeout/$hash";
-      klab get-lemmas "$hash"
-      klab zip "$hash" > /dev/null
-      echo "Zipped timed-out proof log for $hash."
-      if [ -n "$KLAB_REPORT_NAME_DIR" ]; then
-        cp "$KLAB_OUT/log/${hash}.zip" "$KLAB_REPORT_NAME_DIR"
-      fi;
-      echo "Saved time-out proof log for $hash."
-    fi;
-  }
-  trap timeout TERM
-
-  TIMER="/usr/bin/env time --quiet"
-  # get the proof hash
-  hash=$(klab hash "$1")
-  # remember the name - first argument
   name=$1
-  # report run
-  touch "$RUNNING_DIR/$hash"
-  report
+  hash=$(klab hash "$name")
+
   if [[ $name =~ .*_pass$ ]] || [[ $name =~ .*_pass_oog$ ]] ; then
     # do not dump _pass.k or pass_oog.k
-    PROVE_FLAGS=""
+    PROVE_DUMP=""
   else
-    PROVE_FLAGS="--dump"
+    PROVE_DUMP="--dump"
   fi;
+
+  TIMER="/usr/bin/env time --quiet -o $KLAB_OUT/meta/time/$hash"
+
+  PROOF_TIMEOUT=$(jq -r ".timeouts["'"'"$name"'"'"]" < config.json)
+  if [ "$PROOF_TIMEOUT" == "null" ]; then PROOF_TIMEOUT="140m"; fi
+  export PROOF_TIMEOUT
+
+  # report start
+  touch "$RUNNING_DIR/$hash"
+  report
+
   set +e
-  # run proof
-  PROOF_START=$(date +%s)
-  export PROOF_START
-  $TIMER -o "$KLAB_OUT/meta/time/$hash" klab prove $PROVE_FLAGS "$hash" &
-  proof_child=$!
-  wait "$proof_child"
+  $TIMER klab prove $PROVE_DUMP --logs --timeout $PROOF_TIMEOUT "$hash"
   result=$?
-  unset proof_child
-  unset PROOF_START
-  if [ $result -ne "0" ]; then
-    cat "$KLAB_OUT/log/${hash}.log"
-    cat "$KLAB_OUT/log/${hash}.err.log"
-  fi;
-  if [ $result -ne "0" ] && [ -z $PROVE_FLAGS ]; then
-    # run proof again with --dump if necessary
-    PROVE_FLAGS="--dump"
-    PROOF_START=$(date +%s)
-    export PROOF_START
-    $TIMER -o "$KLAB_OUT/meta/time/$hash" klab prove $PROVE_FLAGS "$hash" &
-    proof_child=$!
-    wait "$proof_child"
+  if [ $result -ne 0 ]  && [ -z $PROVE_DUMP ]; then
+    $TIMER klab prove --dump --logs --timeout $PROOF_TIMEOUT "$hash"
     result=$?
-    unset proof_child
-    unset PROOF_START
   fi;
   set -e
+
   # report finish
   rm "$RUNNING_DIR/$hash"
   report
-  if [[ $name =~ .*_pass_rough$ ]] && [ $result -eq "0" ]; then
+
+  if [ $result -eq 0 ] && [[ $name =~ .*_pass_rough$ ]]; then
     # gas analysis from the rough pass
     klab get-gas "$hash"
     klab solve-gas "$hash"
-  fi;
-  if [ -n "$KLAB_REPORT_PROJECT_DIR" ] && [ -n "$KLAB_WEBPROOF_DIR" ] && [ -n "$PROVE_FLAGS" ]; then
-    if [ $result -ne "0" ]; then
-      klab zip "$hash" > /dev/null
-      cp "$KLAB_OUT/log/${hash}.zip" "$KLAB_REPORT_NAME_DIR"
-      cp "$KLAB_OUT/log/${hash}.log" "$KLAB_REPORT_NAME_DIR"
-      cp "$KLAB_OUT/log/${hash}.err.log" "$KLAB_REPORT_NAME_DIR"
-      if [[ $name =~ .*_pass_rough$ ]]; then
-        cp "$GAS_DIR/${hash}.kast" "$KLAB_REPORT_NAME_DIR"
-        cp "$GAS_DIR/${hash}.raw.kast.json" "$KLAB_REPORT_NAME_DIR"
-      fi;
-    else
-      # generate and upload bundle to proof.dapp.ci
-      # klab bundle --prune --evm "$hash"
-      # cp "$KLAB_OUT/log/boot_${hash}.json" "$KLAB_WEBPROOF_DIR"
-      :
-    fi;
-  fi;
-
-  if [ -n "$PROVE_FLAGS" ]; then
     klab get-lemmas "$hash"
-  fi
+  elif [ $result -ne 0 ] && [ -n "$PROVE_DUMP" ] && [ -n "$KLAB_REPORT_PROJECT_DIR" ]; then
+    klab zip "$hash" > /dev/null
+    cp "$KLAB_OUT/log/${hash}.zip" "$KLAB_REPORT_NAME_DIR"
+    cp "$KLAB_OUT/log/${hash}.log" "$KLAB_REPORT_NAME_DIR"
+    cp "$KLAB_OUT/log/${hash}.err.log" "$KLAB_REPORT_NAME_DIR"
+    if [[ $name =~ .*_pass_rough$ ]]; then
+      cp "$GAS_DIR/${hash}.kast" "$KLAB_REPORT_NAME_DIR"
+      cp "$GAS_DIR/${hash}.raw.kast.json" "$KLAB_REPORT_NAME_DIR"
+    fi;
+    klab get-lemmas "$hash"
+  elif [ $result -ne 0 ] && [ -n "$PROVE_DUMP" ]; then
+    klab get-lemmas "$hash"
+  fi;
 
   # cleanup dumped data
   rm -fdr "$KLAB_OUT/data/${hash}_blobs"
@@ -189,21 +147,17 @@ make_batch () {
   if [ -n "$KLAB_REPORT_PROJECT_DIR" ]; then
     cp -n "$KLAB_OUT"/specs/*.k "$KLAB_REPORT_NAME_DIR"
   fi;
-  TIMEOUT=8400
-  export TIMEOUT
-  # timeout timeout after 10 minutes
-  # (enough time to zip and bookkeeping)
-  TIMEOUTTIMEOUT=600000
-  export TIMEOUTTIMEOUT
-  parallel -u --timeout $TIMEOUT --termseq TERM,$TIMEOUTTIMEOUT,KILL,25 -P "$THREADS" do_proof {} < "$OBLIGATIONS"
-  # previously used:
-  # xargs -P "$THREADS" -I % sh -xc 'do_proof %' < "$OBLIGATIONS"
+  parallel -u -P "$THREADS" do_proof {} < "$OBLIGATIONS" & parallel_id=$!
+  trap 'echo "Trapped SIGTERM in klab-prove-all" && kill -s INT $parallel_id && exit 1' TERM
+  trap 'echo "Trapped SIGINT  in klab-prove-all" && kill -s INT $parallel_id && exit 1' INT
+  wait $parallel_id
   result=$?
-  echo $result
+  unset parallel_id
   if [ $result -ge 255 ]; then
     echo "Parallel finished with exceptional code:" "$result"
     exit $result
   else
+    echo "batch ${bold}COMPLETE${reset} ($result): no outstanding proof obligations."
     klab build;
     return $result
   fi;
@@ -218,9 +172,9 @@ mkdir -p "$KLAB_OUT/timeout"
 rm -fdr "$KLAB_OUT/meta/name"
 rm -fdr "$KLAB_OUT/specs"
 klab build
-if [ ! -z $KLAB_REPORT_NAME_DIR ]; then
-  rm -f $KLAB_REPORT_NAME_DIR/latest
-  ln -s $KLAB_REPORT_PROJECT_DIR $KLAB_REPORT_NAME_DIR/latest
+if [ ! -z "$KLAB_REPORT_NAME_DIR" ]; then
+  rm -f "$KLAB_REPORT_NAME_DIR/latest"
+  ln -s "$KLAB_REPORT_PROJECT_DIR" "$KLAB_REPORT_NAME_DIR/latest"
 fi
 if [ -n "$KLAB_REPORT_PROJECT_DIR" ] && [ -f "$KLAB_OUT/bin_runtime.k" ]; then
   cp "$KLAB_OUT/bin_runtime.k" "$KLAB_REPORT_PROJECT_DIR"
@@ -250,4 +204,3 @@ if [ $failures -ge 1 ]; then
 else
   exit 0
 fi;
-
