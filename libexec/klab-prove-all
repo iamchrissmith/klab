@@ -88,7 +88,7 @@ do_proof () {
   TIMER="/usr/bin/env time --quiet -o $KLAB_OUT/meta/time/$hash"
 
   PROOF_TIMEOUT=$(jq -r ".timeouts["'"'"$name"'"'"]" < config.json)
-  if [ "$PROOF_TIMEOUT" == "null" ]; then PROOF_TIMEOUT="140m"; fi
+  if [ "$PROOF_TIMEOUT" == "null" ]; then PROOF_TIMEOUT="200m"; fi
   export PROOF_TIMEOUT
 
   # report start
@@ -104,14 +104,8 @@ do_proof () {
   fi;
   set -e
 
-  # report finish
-  rm "$RUNNING_DIR/$hash"
-  report
-
-  if [ $result -eq 0 ] && [[ $name =~ .*_pass_rough$ ]]; then
-    # gas analysis from the rough pass
+  if [ $result -eq 0 ] && [ -n "$PROVE_DUMP" ] && [[ $name =~ .*_pass_rough$ ]]; then
     klab get-gas "$hash"
-    klab solve-gas "$hash"
     klab get-lemmas "$hash"
   elif [ $result -ne 0 ] && [ -n "$PROVE_DUMP" ] && [ -n "$KLAB_REPORT_PROJECT_DIR" ]; then
     klab zip "$hash" > /dev/null
@@ -119,13 +113,16 @@ do_proof () {
     cp "$KLAB_OUT/log/${hash}.log" "$KLAB_REPORT_NAME_DIR"
     cp "$KLAB_OUT/log/${hash}.err.log" "$KLAB_REPORT_NAME_DIR"
     if [[ $name =~ .*_pass_rough$ ]]; then
-      cp "$GAS_DIR/${hash}.kast" "$KLAB_REPORT_NAME_DIR"
       cp "$GAS_DIR/${hash}.raw.kast.json" "$KLAB_REPORT_NAME_DIR"
     fi;
     klab get-lemmas "$hash"
   elif [ $result -ne 0 ] && [ -n "$PROVE_DUMP" ]; then
     klab get-lemmas "$hash"
   fi;
+
+  # report finish
+  rm "$RUNNING_DIR/$hash"
+  report
 
   # cleanup dumped data
   rm -fdr "$KLAB_OUT/data/${hash}_blobs"
@@ -198,7 +195,7 @@ while [ -s "$OBLIGATIONS" ]; do
   count=$((count+1))
 done;
 echo "${bold}COMPLETE${reset}: no outstanding proof obligations."
-printf "Finished with %d failed proofs." $failures
+echo "Finished with ${failures} failed proofs."
 if [ $failures -ge 1 ]; then
   exit 1
 else

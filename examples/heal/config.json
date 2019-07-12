@@ -3,12 +3,13 @@
     "specification": "src/spec.md",
     "smt_prelude": "src/prelude.smt2.md",
     "rules": [
+      "src/lemmas.k.md",
       "src/storage.k.md"
     ]
   },
   "implementations": {
     "Vat": {
-      "solc_output": "dapp/out/vat.sol.json"
+      "src": "src/vat.sol"
     }
   },
   "split_fail": [
